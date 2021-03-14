@@ -8,6 +8,113 @@ class prob_cca:
     def __init__(self):
         self.params = []
 
+    def train(self,X,Y,zDim,tol=1e-6,max_iter=int(1e6),verbose=False,rand_seed=None,warmstart=True):
+        # set random seed
+        if not(rand_seed is None):
+            np.random.seed(rand_seed)
+
+        # set some useful parameters
+        N,xDim = X.shape
+        N,yDim = Y.shape
+        mu_x,mu_y = X.mean(axis=0),Y.mean(axis=0)
+        Xc,Yc = (X-mu_x), (Y-mu_y) 
+        XcYc = np.concatenate((Xc,Yc),axis=1)
+        covX = 1/N * (Xc.T).dot(Xc)
+        covY = 1/N * (Yc.T).dot(Yc)
+        covXY = 1/N * (Xc.T).dot(Yc)
+        sampleCov = 1/N * (XcYc.T).dot(XcYc)
+        var_floor = self.min_var*np.diag(sampleCov)
+        Iz = np.identity(zDim)
+        const = (xDim+yDim)*np.log(2*np.pi)
+
+        if early_stop:
+            Xc_test,Yc_test = X_early_stop-mu_x,Y_early_stop-mu_y
+            XcYc_test = np.concatenate((Xc_test,Yc_test),axis=1)
+            cov_test = (1/N)*(XcYc_test.T.dot(XcYc_test))
+
+        # check that covariance is full rank
+        if np.linalg.matrix_rank(sampleCov)==(xDim+yDim):
+            x_scale = np.exp(2/xDim*np.sum(np.log(np.diag(slin.cholesky(covX)))))
+            y_scale = np.exp(2/yDim*np.sum(np.log(np.diag(slin.cholesky(covY)))))
+        else:
+            raise np.linalg.LinAlgError('Covariance matrix is low rank')
+
+        # initialize parameters
+        if warmstart:
+            tmp = pcca.prob_cca()
+            tmp.train_maxLL(X,Y,zDim)
+            W_x = tmp.get_params()['W_x']
+            W_y = tmp.get_params()['W_y']
+        else:
+            W_x = np.random.randn(xDim,zDim) * np.sqrt(x_scale/zDim)
+            W_y = np.random.randn(yDim,zDim) * np.sqrt(y_scale/zDim)
+            L_x = np.random.randn(xDim,zxDim) * np.sqrt(x_scale/zxDim)
+            L_y = np.random.randn(yDim,zyDim) * np.sqrt(y_scale/zyDim)
+        Ph = sampleCov
+        Ph_mask = np.ones(Ph.shape)
+        Ph_mask[:xDim,xDim:] = np.zeros((xDim,yDim))
+        Ph_mask[xDim:,:xDim] = np.zeros((yDim,xDim))
+        
+        L_total = np.concatenate((W_x,W_y),axis=0)
+
+        # em algorithm
+        LL = []
+        testLL = []
+        for i in range(max_iter):
+            # E-step: set q(z) = p(z,zx,zy|x,y)
+            iPh = np.diag(1/Ph)
+            iPhL = iPh.dot(L_total)
+            if zDim==0 and zxDim==0 and zyDim==0:
+                iSig = iPh
+            else:
+                iSig = iPh - iPhL.dot(slin.inv(Iz+(L_total.T).dot(iPhL))).dot(iPhL.T)
+            iSigL = iSig.dot(L_total)
+            cov_iSigL = sampleCov.dot(iSigL)
+            E_zz = Iz - (L_total.T).dot(iSigL) + (iSigL.T).dot(cov_iSigL)
+            
+            # compute log likelihood
+            logDet = 2*np.sum(np.log(np.diag(slin.cholesky(iSig))))
+            curr_LL = -N/2 * (const - logDet + np.trace(iSig.dot(sampleCov)))
+            LL.append(curr_LL)
+            if early_stop:
+                curr_testLL = -N/2 * (const - logDet + np.trace(iSig.dot(cov_test)))
+                testLL.append(curr_testLL)
+            if verbose:
+                print('EM iteration ',i,', LL={:.2f}'.format(curr_LL))
+
+            # check for convergence (training LL increases by less than tol, or testLL decreases)
+            if i>1:
+                if (LL[-1]-LL[-2])<tol or (early_stop and testLL[-1]<testLL[-2]):
+                    break
+
+            # M-step: compute new L and Ph
+            L_total = cov_iSigL.dot(slin.inv(E_zz))
+            Ph = sampleCov - L_total.dot(cov_iSigL.T) - cov_iSigL.dot(L_total.T) + L_total.dot(E_zz).dot(L_total.T)
+            Ph = PH * Ph_mask
+
+        # get final parameters
+        W_x, W_y = L_total[:xDim,:], L_total[xDim:,:]
+        psi_x, psi_y = Ph[:xDim,:xDim], Ph[xDim:,xDim:]
+        
+        # compute canonical correlations
+        est_covX = W_x.dot(W_x.T) + psi_x
+        est_covY = W_y.dot(W_y.T) + psi_y
+        est_covXY = W_x.dot(W_y.T)
+        inv_sqrt_covX = slin.inv(slin.sqrtm(est_covX))
+        inv_sqrt_covY = slin.inv(slin.sqrtm(est_covY))
+        K = inv_sqrt_covX.dot(est_covXY).dot(inv_sqrt_covY)
+        d = slin.svd(K,compute_uv=False)
+        rho = d[0:zDim]
+        
+        # create parameter dict
+        self.params = {
+            'mu_x':mu_x,'mu_y':mu_y,
+            'W_x':W_x,'W_y':W_y,
+            'psi_x':psi_x,
+            'psi_y':psi_y,
+            'zDim':zDim,
+            'rho':rho
+        }
 
     def train_maxLL(self,X,Y,zDim):
         N,xDim = X.shape
