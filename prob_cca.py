@@ -1,5 +1,6 @@
 import numpy as np
 import cca.canon_corr as cc
+import scipy.linalg as slin
 import sklearn.model_selection as ms
 
 class prob_cca:
@@ -23,14 +24,8 @@ class prob_cca:
         covY = 1/N * (Yc.T).dot(Yc)
         covXY = 1/N * (Xc.T).dot(Yc)
         sampleCov = 1/N * (XcYc.T).dot(XcYc)
-        var_floor = self.min_var*np.diag(sampleCov)
         Iz = np.identity(zDim)
         const = (xDim+yDim)*np.log(2*np.pi)
-
-        if early_stop:
-            Xc_test,Yc_test = X_early_stop-mu_x,Y_early_stop-mu_y
-            XcYc_test = np.concatenate((Xc_test,Yc_test),axis=1)
-            cov_test = (1/N)*(XcYc_test.T.dot(XcYc_test))
 
         # check that covariance is full rank
         if np.linalg.matrix_rank(sampleCov)==(xDim+yDim):
@@ -41,15 +36,13 @@ class prob_cca:
 
         # initialize parameters
         if warmstart:
-            tmp = pcca.prob_cca()
+            tmp = prob_cca()
             tmp.train_maxLL(X,Y,zDim)
             W_x = tmp.get_params()['W_x']
             W_y = tmp.get_params()['W_y']
         else:
             W_x = np.random.randn(xDim,zDim) * np.sqrt(x_scale/zDim)
             W_y = np.random.randn(yDim,zDim) * np.sqrt(y_scale/zDim)
-            L_x = np.random.randn(xDim,zxDim) * np.sqrt(x_scale/zxDim)
-            L_y = np.random.randn(yDim,zyDim) * np.sqrt(y_scale/zyDim)
         Ph = sampleCov
         Ph_mask = np.ones(Ph.shape)
         Ph_mask[:xDim,xDim:] = np.zeros((xDim,yDim))
@@ -59,10 +52,9 @@ class prob_cca:
 
         # em algorithm
         LL = []
-        testLL = []
         for i in range(max_iter):
-            # E-step: set q(z) = p(z,zx,zy|x,y)
-            iPh = np.diag(1/Ph)
+            # E-step: set q(z) = p(z|x,y)
+            iPh = slin.inv(Ph)
             iPhL = iPh.dot(L_total)
             if zDim==0 and zxDim==0 and zyDim==0:
                 iSig = iPh
@@ -76,21 +68,19 @@ class prob_cca:
             logDet = 2*np.sum(np.log(np.diag(slin.cholesky(iSig))))
             curr_LL = -N/2 * (const - logDet + np.trace(iSig.dot(sampleCov)))
             LL.append(curr_LL)
-            if early_stop:
-                curr_testLL = -N/2 * (const - logDet + np.trace(iSig.dot(cov_test)))
-                testLL.append(curr_testLL)
             if verbose:
                 print('EM iteration ',i,', LL={:.2f}'.format(curr_LL))
 
             # check for convergence (training LL increases by less than tol, or testLL decreases)
             if i>1:
-                if (LL[-1]-LL[-2])<tol or (early_stop and testLL[-1]<testLL[-2]):
+                if (LL[-1]-LL[-2])<tol:
                     break
 
             # M-step: compute new L and Ph
             L_total = cov_iSigL.dot(slin.inv(E_zz))
             Ph = sampleCov - L_total.dot(cov_iSigL.T) - cov_iSigL.dot(L_total.T) + L_total.dot(E_zz).dot(L_total.T)
-            Ph = PH * Ph_mask
+            Ph = Ph * Ph_mask
+            Ph = (Ph + Ph.T)/2
 
         # get final parameters
         W_x, W_y = L_total[:xDim,:], L_total[xDim:,:]
@@ -115,6 +105,7 @@ class prob_cca:
             'zDim':zDim,
             'rho':rho
         }
+
 
     def train_maxLL(self,X,Y,zDim):
         N,xDim = X.shape
