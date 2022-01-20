@@ -98,8 +98,8 @@ class prob_cca:
 
         # order W_x, W_y by canon corrs
         pd = np.diag(np.sqrt(rho))
-        W_x = est_covX.dot(u[:,0:zDim]).dot(pd)
-        W_y = est_covX.dot(vt[0:zDim,:].T).dot(pd)
+        W_x = slin.sqrtm(est_covX).dot(u[:,0:zDim]).dot(pd)
+        W_y = slin.sqrtm(est_covY).dot(vt[0:zDim,:].T).dot(pd)
 
         # create parameter dict
         self.params = {
