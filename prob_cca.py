@@ -95,14 +95,6 @@ class prob_cca:
         K = inv_sqrt_covX.dot(est_covXY).dot(inv_sqrt_covY)
         d = slin.svd(K,compute_uv=False)
         rho = d[0:zDim]
-        
-        # order Wx and Wy by canonical correlation
-        z,_ = self.estep(X,Y)
-        zx,zy = z['zx_mu'], z['zy_mu']
-        ux,_,_ = slin.svd(zx.T.dot(zx))
-        W_x = W_x.dot(ux)
-        uy,_,_ = slin.svd(zy.T.dot(zy))
-        W_y = W_y.dot(uy)
 
         # create parameter dict
         self.params = {
@@ -113,6 +105,14 @@ class prob_cca:
             'zDim':zDim,
             'rho':rho
         }
+
+        # order Wx and Wy by canonical correlation
+        z,_ = self.estep(X,Y)
+        zx,zy = z['zx_mu'], z['zy_mu']
+        ux,_,_ = slin.svd(zx.T.dot(zx))
+        self.params['W_x'] = W_x.dot(ux)
+        uy,_,_ = slin.svd(zy.T.dot(zy))
+        self.params['W_y'] = W_y.dot(uy)
 
 
     def train_maxLL(self,X,Y,zDim):
