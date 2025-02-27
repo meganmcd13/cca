@@ -292,7 +292,7 @@ class prob_cca:
         LL_curves = {'z_list':z_list}
 
         # create k-fold iterator
-        if verbose: print('Crossvalidating pCCA-FA model to choose # of dims...')
+        if verbose: print('Crossvalidating pCCA model to choose # of dims...')
         cv_kfold = ms.KFold(n_splits=n_folds,shuffle=True,random_state=rand_seed)
 
         # iterate through train/test splits
