@@ -16,13 +16,12 @@ class prob_cca:
 
         # set some useful parameters
         N,xDim = X.shape
-        N,yDim = Y.shape
+        yDim = Y.shape[1]
         mu_x,mu_y = X.mean(axis=0),Y.mean(axis=0)
         Xc,Yc = (X-mu_x), (Y-mu_y) 
         XcYc = np.concatenate((Xc,Yc),axis=1)
         covX = 1/N * (Xc.T).dot(Xc)
         covY = 1/N * (Yc.T).dot(Yc)
-        covXY = 1/N * (Xc.T).dot(Yc)
         sampleCov = 1/N * (XcYc.T).dot(XcYc)
         Iz = np.identity(zDim)
         const = (xDim+yDim)*np.log(2*np.pi)
@@ -48,15 +47,21 @@ class prob_cca:
         Ph_mask[:xDim,xDim:] = np.zeros((xDim,yDim))
         Ph_mask[xDim:,:xDim] = np.zeros((yDim,xDim))
         
-        L_total = np.concatenate((W_x,W_y),axis=0)
+        L_total = np.concatenate((W_x,W_y),axis=0) # combined loading matrix
 
         # em algorithm
         LL = []
         for i in range(max_iter):
-            # E-step: set q(z) = p(z|x,y)
+            # calculate inverse of Ph
+            # inv1 = np.concatenate((slin.inv(Ph[:xDim,:xDim]),np.zeros((xDim,yDim))),axis=1)
+            # inv2 = np.concatenate((np.zeros((yDim,xDim)),slin.inv(Ph[xDim:,xDim:])),axis=1)
+            # iPh = np.concatenate((inv1,inv2),axis=0)
+            # iPh = 0.5 * (iPh + iPh.T) # Ensure symmetry
             iPh = slin.inv(Ph)
+
+            # E-step: set q(z) = p(z,zx,zy|x,y)
             iPhL = iPh.dot(L_total)
-            if zDim==0 and zxDim==0 and zyDim==0:
+            if zDim==0:
                 iSig = iPh
             else:
                 iSig = iPh - iPhL.dot(slin.inv(Iz+(L_total.T).dot(iPhL))).dot(iPhL.T)
@@ -68,24 +73,23 @@ class prob_cca:
             logDet = 2*np.sum(np.log(np.diag(slin.cholesky(iSig))))
             curr_LL = -N/2 * (const - logDet + np.trace(iSig.dot(sampleCov)))
             LL.append(curr_LL)
-            if verbose:
-                print('EM iteration ',i,', LL={:.2f}'.format(curr_LL))
+            if verbose: print('EM iteration ',i,', LL={:.2f}'.format(curr_LL))
 
-            # check for convergence (training LL increases by less than tol, or testLL decreases)
-            if i>1:
-                if (LL[-1]-LL[-2])<tol:
-                    break
+            # check for convergence (training LL increases by less than tol)
+            if i>1 and (LL[-1]-LL[-2])<tol:
+                break
 
             # M-step: compute new L and Ph
-            L_total = cov_iSigL.dot(slin.inv(E_zz))
-            Ph = sampleCov - L_total.dot(cov_iSigL.T) - cov_iSigL.dot(L_total.T) + L_total.dot(E_zz).dot(L_total.T)
+            if not(zDim==0):
+                L_total = cov_iSigL.dot(slin.inv(E_zz))
+            Ph = sampleCov - L_total.dot(cov_iSigL.T)
             Ph = Ph * Ph_mask
-            Ph = (Ph + Ph.T)/2
+            Ph = (Ph + Ph.T)/2 # enforce symmetry
 
         # get final parameters
         W_x, W_y = L_total[:xDim,:], L_total[xDim:,:]
         psi_x, psi_y = Ph[:xDim,:xDim], Ph[xDim:,xDim:]
-        
+
         # compute canonical correlations
         est_covX = W_x.dot(W_x.T) + psi_x
         est_covY = W_y.dot(W_y.T) + psi_y
@@ -95,7 +99,7 @@ class prob_cca:
         K = inv_sqrt_covX.dot(est_covXY).dot(inv_sqrt_covY)
         u,d,vt = slin.svd(K)
         rho = d[0:zDim]
-
+        
         # order W_x, W_y by canon corrs
         pd = np.diag(np.sqrt(rho))
         W_x = slin.sqrtm(est_covX).dot(u[:,0:zDim]).dot(pd)
@@ -162,12 +166,9 @@ class prob_cca:
         N,yDim = Y.shape
 
         # get model parameters
-        mu_x = self.params['mu_x']
-        mu_y = self.params['mu_y']
-        mu = np.concatenate((mu_x,mu_y))
-        W_x = self.params['W_x']
-        W_y = self.params['W_y']
-        W = np.concatenate((W_x,W_y),axis=0)
+        mu_x,mu_y = self.params['mu_x'],self.params['mu_y']
+        W_x,W_y = self.params['W_x'],self.params['W_y']
+        L_total = np.concatenate((W_x,W_y),axis=0)
         psi_x = self.params['psi_x']
         psi_y = self.params['psi_y']
         tmp1 = np.concatenate((psi_x,np.zeros((xDim,yDim))),axis=1)
@@ -177,43 +178,40 @@ class prob_cca:
         # center data and compute covariances
         Xc = X-mu_x
         Yc = Y-mu_y
-        XYc = np.concatenate((Xc,Yc),axis=1)
-        covX = 1/N * (Xc.T).dot(Xc)
-        covY = 1/N * (Yc.T).dot(Yc)
-        covXY = 1/N * (Xc.T).dot(Yc)
-        sampleCov = 1/N * (XYc.T).dot(XYc)
+        XcYc = np.concatenate((Xc,Yc),axis=1)
+        sampleCov = 1/N * (XcYc.T).dot(XcYc)
 
-        # compute z_xy
+        # compute z
         Iz = np.identity(self.params['zDim'])
-        C = W.dot(W.T) + psi
-        invC = np.linalg.inv(C)
-        z_mu = (W.T).dot(invC).dot(XYc.T)
-        z_cov = np.diag(np.diag(Iz - (W.T).dot(invC).dot(W)))
+        C = L_total.dot(L_total.T) + psi
+        invC = slin.inv(C)
+        z_mu = XcYc.dot(invC).dot(L_total)
+        z_cov = np.diag(np.diag(Iz - (L_total.T).dot(invC).dot(L_total)))
 
         # compute z_x
         C_x = C[0:xDim,0:xDim]
         invCx = np.linalg.inv(C_x)
-        zx_mu = (W_x.T).dot(invCx).dot(Xc.T)
+        zx_mu = Xc.dot(invCx).dot(W_x)
         zx_cov = np.diag(np.diag(Iz - (W_x.T).dot(invCx).dot(W_x)))
 
         # compute z_y
         C_y = C[xDim:(xDim+yDim),xDim:(xDim+yDim)]
         invCy = np.linalg.inv(C_y)
-        zy_mu = (W_y.T).dot(invCy).dot(Yc.T)
+        zy_mu = Yc.dot(invCy).dot(W_y)
         zy_cov = np.diag(np.diag(Iz - (W_y.T).dot(invCy).dot(W_y)))
 
         # compute LL
         const = (xDim+yDim)*np.log(2*np.pi)
-        logDet = 2*np.sum(np.log(np.diag(np.linalg.cholesky(C))))
+        logDet = 2*np.sum(np.log(np.diag(slin.cholesky(C))))
         LL = -N/2 * (const + logDet + np.trace(invC.dot(sampleCov)))
-
+        
         # return posterior and LL
         z = { 
-            'z_mu':z_mu.T,
+            'z_mu':z_mu,
             'z_cov':z_cov,
-            'zx_mu':zx_mu.T,
+            'zx_mu':zx_mu,
             'zx_cov':zx_cov,
-            'zy_mu':zy_mu.T,
+            'zy_mu':zy_mu,
             'zy_cov':zy_cov
         }
         
@@ -252,19 +250,17 @@ class prob_cca:
         z_list = zDim_list.astype(int)
 
         # create k-fold iterator
-        if verbose:
-            print('Crossvalidating pCCA model to choose # of dims...')
+        if verbose: print('Crossvalidating pCCA-FA model to choose # of dims...')
         cv_kfold = ms.KFold(n_splits=n_folds,shuffle=True,random_state=rand_seed)
 
         # iterate through train/test splits
         i = 0
         LLs = np.zeros([n_folds,len(z_list)])
         for train_idx,test_idx in cv_kfold.split(X):
-            if verbose:
-                print('   Fold ',i+1,' of ',n_folds,'...')
-
+            if verbose: print('   Fold ',i+1,' of ',n_folds,'...')
             X_train,X_test = X[train_idx], X[test_idx]
             Y_train,Y_test = Y[train_idx], Y[test_idx]
+            
             # iterate through each zDim
             for j in range(len(z_list)):
                 tmp = prob_cca()
