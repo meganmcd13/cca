@@ -113,13 +113,46 @@ class prob_cca:
 
         # create parameter dict
         self.params = {
-            'mu_x':mu_x,'mu_y':mu_y,
-            'W_x':W_x,'W_y':W_y,
-            'psi_x':psi_x,
-            'psi_y':psi_y,
-            'zDim':zDim,
-            'rho':rho
+            'mu_x':mu_x,'mu_y':mu_y, # estimated mean per neuron
+            'L_total': L_total, # maximum likelihood across-area loading matrix
+            'W_x':W_x,'W_y':W_y, # across-area loading matrices in canonical modes (same col span as L_total)
+            'psi_x':psi_x,'psi_y':psi_y, # within-area and private variance per neuron
+            'zDim':zDim, # selected dimensionality
+            'rho':rho # canonical correlations
         }
+
+    def get_loading_matrices(self):
+        # subdivide L_total into W_x, W_y directly from maximum likelihood estimation
+
+        xDim = len(self.params['mu_x'])
+        zDim = self.params['zDim']
+        L_total = self.params['L_total']
+        # get final parameters
+        W_x, W_y = L_total[:xDim,:zDim], L_total[xDim:,:zDim]
+
+        return W_x, W_y
+    
+    def get_canonical_directions(self):
+        # get canonical directions (as returned by CCA)
+
+        W_x, W_y = self.get_loading_matrices()
+        psi_x, psi_y = self.params['psi_x'], self.params['psi_y']
+        zDim = self.params['zDim']
+
+        # compute canonical correlations
+        est_covX = W_x.dot(W_x.T) + psi_x
+        est_covY = W_y.dot(W_y.T) + psi_y
+        est_covXY = W_x.dot(W_y.T)
+        inv_sqrt_covX = slin.inv(slin.sqrtm(est_covX))
+        inv_sqrt_covY = slin.inv(slin.sqrtm(est_covY))
+        K = inv_sqrt_covX.dot(est_covXY).dot(inv_sqrt_covY)
+        u,d,vt = slin.svd(K)
+        rho = d[0:zDim]
+
+        canonical_dirs_x = slin.inv(slin.sqrtm(est_covX)) @ u[:,:zDim]
+        canonical_dirs_y = slin.inv(slin.sqrtm(est_covY)) @ vt[:zDim,:].T
+
+        return (canonical_dirs_x, canonical_dirs_y), rho
 
 
     def train_maxLL(self,X,Y,zDim):
