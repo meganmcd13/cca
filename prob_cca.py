@@ -3,6 +3,12 @@ import cca.canon_corr as cc
 import scipy.linalg as slin
 import sklearn.model_selection as ms
 
+# imports for parallelization
+from joblib import Parallel, delayed
+from functools import partial
+from psutil import cpu_count
+from tqdm import tqdm
+
 class prob_cca:
 
 
@@ -243,11 +249,14 @@ class prob_cca:
         return z_orth, W_orth
 
 
-    def crossvalidate(self,X,Y,zDim_list=np.linspace(0,10,11),n_folds=10,verbose=True,rand_seed=None):
-        N,D = X.shape
+    def crossvalidate(self,X,Y,zDim_list=np.arange(10),n_folds=10,verbose=True,max_iter=int(1e6),tol=1e-6,rand_seed=None,parallelize=False):
+        # set random seed
+        if not(rand_seed is None):
+            np.random.seed(rand_seed)
 
         # make sure z dims are integers
         z_list = zDim_list.astype(int)
+        LL_curves = {'z_list':z_list}
 
         # create k-fold iterator
         if verbose: print('Crossvalidating pCCA-FA model to choose # of dims...')
@@ -262,44 +271,39 @@ class prob_cca:
             Y_train,Y_test = Y[train_idx], Y[test_idx]
             
             # iterate through each zDim
-            for j in range(len(z_list)):
-                tmp = prob_cca()
-                tmp.train_maxLL(X_train,Y_train,z_list[j])
-                z,curr_LL = tmp.estep(X_test,Y_test)
-                LLs[i,j] = curr_LL
+            func = partial(self._cv_helper,Xtrain=X_train,Ytrain=Y_train,Xtest=X_test,Ytest=Y_test,\
+                           rand_seed=rand_seed,max_iter=max_iter,tol=tol)
+            if parallelize:
+                tmp = Parallel(n_jobs=cpu_count(logical=False),backend='loky')\
+                    (delayed(func)(z_list[j]) for j in range(len(z_list)))
+                LLs[i,:] = [val[0] for val in tmp]
+            else:
+                for j in tqdm(range(len(z_list))):
+                    tmp = func(z_list[j])
+                    LLs[i,j]= tmp[0]
             i = i+1
         
         sum_LLs = LLs.sum(axis=0)
+        LL_curves['LLs'] = sum_LLs
 
         # find the best # of z dimensions and train CCA model
         max_idx = np.argmax(sum_LLs)
         zDim = z_list[max_idx]
-        self.train_maxLL(X,Y,zDim)
+        LL_curves['zDim']=zDim
+        LL_curves['final_LL'] = sum_LLs[max_idx]
+        self.train(X,Y,zDim)
 
-        # cross-validate to get canonical correlations
-        if verbose:
-            print('Crossvalidating pCCA model to compute canon corrs...')
-        zx,zy = np.zeros((2,N,zDim))
-        for train_idx,test_idx in cv_kfold.split(X):
-            X_train,X_test = X[train_idx], X[test_idx]
-            Y_train,Y_test = Y[train_idx], Y[test_idx]
+        self.LL_curves = LL_curves
 
-            tmp = prob_cca()
-            tmp.train_maxLL(X_train,Y_train,zDim)
-            z,curr_LL = tmp.estep(X_test,Y_test)
+        return LL_curves
 
-            zx[test_idx,:] = z['zx_mu']
-            zy[test_idx,:] = z['zy_mu']
-
-        cv_rho = np.zeros(zDim)
-        for i in range(zDim):
-            tmp = np.corrcoef(zx[:,i],zy[:,i])
-            cv_rho[i] = tmp[0,1]
+    def _cv_helper(self,zDim,Xtrain,Ytrain,Xtest,Ytest,rand_seed=None,max_iter=int(1e5),tol=1e-6):
+        tmp = prob_cca()
+        tmp.train(Xtrain,Ytrain,zDim,rand_seed=rand_seed,max_iter=max_iter,tol=tol)
+        # log-likelihood
+        _,LL = tmp.estep(Xtest,Ytest)
         
-        self.params['cv_rho'] = cv_rho
-
-        return sum_LLs, z_list, sum_LLs[max_idx], z_list[max_idx]
-
+        return LL
 
     def compute_dshared(self,cutoff_thresh=0.95):
         # for area x
