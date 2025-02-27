@@ -309,11 +309,11 @@ class prob_cca:
             if parallelize:
                 tmp = Parallel(n_jobs=cpu_count(logical=False),backend='loky')\
                     (delayed(func)(z_list[j]) for j in range(len(z_list)))
-                LLs[i,:] = [val[0] for val in tmp]
+                LLs[i,:] = tmp
             else:
                 for j in tqdm(range(len(z_list))):
                     tmp = func(z_list[j])
-                    LLs[i,j]= tmp[0]
+                    LLs[i,j]= tmp
             i = i+1
         
         sum_LLs = LLs.sum(axis=0)
