@@ -282,7 +282,7 @@ class prob_cca:
         return z_orth, W_orth
 
 
-    def crossvalidate(self,X,Y,zDim_list=np.arange(10),n_folds=10,verbose=True,max_iter=int(1e6),tol=1e-6,rand_seed=None,parallelize=False):
+    def crossvalidate(self,X,Y,zDim_list=np.arange(10),n_folds=10,verbose=True,max_iter=int(1e6),tol=1e-6,rand_seed=None,parallelize=False,warmstart=True):
         # set random seed
         if not(rand_seed is None):
             np.random.seed(rand_seed)
@@ -305,7 +305,7 @@ class prob_cca:
             
             # iterate through each zDim
             func = partial(self._cv_helper,Xtrain=X_train,Ytrain=Y_train,Xtest=X_test,Ytest=Y_test,\
-                           rand_seed=rand_seed,max_iter=max_iter,tol=tol)
+                           rand_seed=rand_seed,max_iter=max_iter,tol=tol,warmstart=warmstart)
             if parallelize:
                 tmp = Parallel(n_jobs=cpu_count(logical=False),backend='loky')\
                     (delayed(func)(z_list[j]) for j in range(len(z_list)))
@@ -330,9 +330,9 @@ class prob_cca:
 
         return LL_curves
 
-    def _cv_helper(self,zDim,Xtrain,Ytrain,Xtest,Ytest,rand_seed=None,max_iter=int(1e5),tol=1e-6):
+    def _cv_helper(self,zDim,Xtrain,Ytrain,Xtest,Ytest,rand_seed=None,max_iter=int(1e5),tol=1e-6,warmstart=True):
         tmp = prob_cca()
-        tmp.train(Xtrain,Ytrain,zDim,rand_seed=rand_seed,max_iter=max_iter,tol=tol)
+        tmp.train(Xtrain,Ytrain,zDim,rand_seed=rand_seed,max_iter=max_iter,tol=tol,warmstart=warmstart)
         # log-likelihood
         _,LL = tmp.estep(Xtest,Ytest)
         
