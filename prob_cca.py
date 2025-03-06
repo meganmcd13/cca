@@ -96,29 +96,13 @@ class prob_cca:
         W_x, W_y = L_total[:xDim,:], L_total[xDim:,:]
         psi_x, psi_y = Ph[:xDim,:xDim], Ph[xDim:,xDim:]
 
-        # compute canonical correlations
-        est_covX = W_x.dot(W_x.T) + psi_x
-        est_covY = W_y.dot(W_y.T) + psi_y
-        est_covXY = W_x.dot(W_y.T)
-        inv_sqrt_covX = slin.inv(slin.sqrtm(est_covX))
-        inv_sqrt_covY = slin.inv(slin.sqrtm(est_covY))
-        K = inv_sqrt_covX.dot(est_covXY).dot(inv_sqrt_covY)
-        u,d,vt = slin.svd(K)
-        rho = d[0:zDim]
-        
-        # order W_x, W_y by canon corrs
-        pd = np.diag(np.sqrt(rho))
-        W_x = slin.sqrtm(est_covX).dot(u[:,0:zDim]).dot(pd)
-        W_y = slin.sqrtm(est_covY).dot(vt[0:zDim,:].T).dot(pd)
-
         # create parameter dict
         self.params = {
             'mu_x':mu_x,'mu_y':mu_y, # estimated mean per neuron
             'L_total': L_total, # maximum likelihood across-area loading matrix
-            'W_x':W_x,'W_y':W_y, # across-area loading matrices in canonical modes (same col span as L_total)
+            'W_x':W_x,'W_y':W_y, # across-area loading matrices
             'psi_x':psi_x,'psi_y':psi_y, # within-area and private variance per neuron
             'zDim':zDim, # selected dimensionality
-            'rho':rho # canonical correlations
         }
 
     def get_loading_matrices(self):
@@ -153,6 +137,29 @@ class prob_cca:
         canonical_dirs_y = slin.inv(slin.sqrtm(est_covY)) @ vt[:zDim,:].T
 
         return (canonical_dirs_x, canonical_dirs_y), rho
+    
+    def get_correlative_modes(self):
+        W_x, W_y = self.get_loading_matrices()
+        psi_x, psi_y = self.params['psi_x'], self.params['psi_y']
+        zDim = self.params['zDim']
+
+        # compute canonical correlations
+        est_covX = W_x.dot(W_x.T) + psi_x
+        est_covY = W_y.dot(W_y.T) + psi_y
+        est_covXY = W_x.dot(W_y.T)
+        inv_sqrt_covX = slin.inv(slin.sqrtm(est_covX))
+        inv_sqrt_covY = slin.inv(slin.sqrtm(est_covY))
+        K = inv_sqrt_covX.dot(est_covXY).dot(inv_sqrt_covY)
+        u,d,vt = slin.svd(K)
+        rho = d[0:zDim]
+        self.params['rho'] = rho
+        
+        # order W_x, W_y by canon corrs
+        pd = np.diag(np.sqrt(rho))
+        CorrModes_x = slin.sqrtm(est_covX).dot(u[:,0:zDim]).dot(pd)
+        CorrModes_y = slin.sqrtm(est_covY).dot(vt[0:zDim,:].T).dot(pd)
+
+        return CorrModes_x, CorrModes_y
 
 
     def train_maxLL(self,X,Y,zDim):
@@ -206,8 +213,8 @@ class prob_cca:
 
         # get model parameters
         mu_x,mu_y = self.params['mu_x'],self.params['mu_y']
-        W_x,W_y = self.params['W_x'],self.params['W_y']
-        L_total = np.concatenate((W_x,W_y),axis=0)
+        W_x,W_y = self.get_loading_matrices()
+        L_total = self.params['L_total'] # direct EM output
         psi_x = self.params['psi_x']
         psi_y = self.params['psi_y']
         tmp1 = np.concatenate((psi_x,np.zeros((xDim,yDim))),axis=1)
