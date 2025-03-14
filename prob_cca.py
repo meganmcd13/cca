@@ -346,29 +346,35 @@ class prob_cca:
         return LL
 
     def compute_dshared(self,cutoff_thresh=0.95):
-        # for area x
-        Wx = self.params['W_x']
-        shared_x = Wx.dot(Wx.T)
-        u,s,vt = np.linalg.svd(shared_x,full_matrices=False,hermitian=True)
-        var_exp = np.cumsum(s)/np.sum(s)
-        dims = np.where(var_exp >= (cutoff_thresh - 1e-9))[0]
-        dshared_x = dims[0]+1
+        Wx, Wy = self.get_loading_matrices()
 
-        # for area y
-        Wy = self.params['W_y']
-        shared_y = Wy.dot(Wy.T)
-        u,s,vt = np.linalg.svd(shared_y,full_matrices=False,hermitian=True)
-        var_exp = np.cumsum(s)/np.sum(s)
-        dims = np.where(var_exp >= (cutoff_thresh - 1e-9))[0]
-        dshared_y = dims[0]+1
+        # for across-area
+        if self.params['zDim'] > 0:
+            # area x
+            shared_x = Wx.dot(Wx.T)
+            s = slin.svdvals(shared_x) ** 2 # eigenvalues 
+            var_exp = np.cumsum(s)/np.sum(s)
+            dims = np.where(var_exp >= (cutoff_thresh - 1e-9))[0]
+            dshared_x = dims[0]+1
 
-        # overall
-        W = np.concatenate((Wx,Wy),axis=0)
-        shared = W.dot(W.T)
-        u,s,vt = np.linalg.svd(shared,full_matrices=False,hermitian=True)
-        var_exp = np.cumsum(s)/np.sum(s)
-        dims = np.where(var_exp >= (cutoff_thresh - 1e-9))[0]
-        dshared_all = dims[0]+1
+            # area y
+            shared_y = Wy.dot(Wy.T)
+            s = slin.svdvals(shared_y) ** 2 # eigenvalues 
+            var_exp = np.cumsum(s)/np.sum(s)
+            dims = np.where(var_exp >= (cutoff_thresh - 1e-9))[0]
+            dshared_y = dims[0]+1
+
+            # overall
+            W = np.concatenate((Wx,Wy),axis=0)
+            shared = W.dot(W.T)
+            s = slin.svdvals(shared) ** 2 # eigenvalues 
+            var_exp = np.cumsum(s)/np.sum(s)
+            dims = np.where(var_exp >= (cutoff_thresh - 1e-9))[0]
+            dshared_all = dims[0]+1
+        else:
+            dshared_x = 0
+            dshared_y = 0
+            dshared_all = 0
 
         return {'dshared_x':dshared_x,'dshared_y':dshared_y,'dshared_all':dshared_all}
 
