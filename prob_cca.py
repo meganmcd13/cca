@@ -133,8 +133,8 @@ class prob_cca:
         u,d,vt = slin.svd(K)
         rho = d[0:zDim]
 
-        canonical_dirs_x = slin.inv(slin.sqrtm(est_covX)) @ u[:,:zDim]
-        canonical_dirs_y = slin.inv(slin.sqrtm(est_covY)) @ vt[:zDim,:].T
+        canonical_dirs_x = inv_sqrt_covX @ u[:,:zDim]
+        canonical_dirs_y = inv_sqrt_covY @ vt[:zDim,:].T
 
         return (canonical_dirs_x, canonical_dirs_y), rho
     
