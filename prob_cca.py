@@ -352,14 +352,14 @@ class prob_cca:
         if self.params['zDim'] > 0:
             # area x
             shared_x = Wx.dot(Wx.T)
-            s = slin.svdvals(shared_x) ** 2 # eigenvalues 
+            s = slin.svdvals(shared_x) # eigenvalues 
             var_exp = np.cumsum(s)/np.sum(s)
             dims = np.where(var_exp >= (cutoff_thresh - 1e-9))[0]
             dshared_x = dims[0]+1
 
             # area y
             shared_y = Wy.dot(Wy.T)
-            s = slin.svdvals(shared_y) ** 2 # eigenvalues 
+            s = slin.svdvals(shared_y) # eigenvalues 
             var_exp = np.cumsum(s)/np.sum(s)
             dims = np.where(var_exp >= (cutoff_thresh - 1e-9))[0]
             dshared_y = dims[0]+1
@@ -367,7 +367,7 @@ class prob_cca:
             # overall
             W = np.concatenate((Wx,Wy),axis=0)
             shared = W.dot(W.T)
-            s = slin.svdvals(shared) ** 2 # eigenvalues 
+            s = slin.svdvals(shared) # eigenvalues 
             var_exp = np.cumsum(s)/np.sum(s)
             dims = np.where(var_exp >= (cutoff_thresh - 1e-9))[0]
             dshared_all = dims[0]+1
